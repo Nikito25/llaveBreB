@@ -10402,6 +10402,7 @@ function process(txt){
   if(!esEMV){
     $('resultCard').style.display='none';
     $('err').innerHTML = '⚠️ Este QR <b>no es un QR de pago Bre-B</b> (no tiene formato EMVCo).<br>Contenido leído: <span style="word-break:break-all">'+escapeHtml(txt)+'</span>';
+    goTop();
     return;
   }
   const cands = findKey(items);
@@ -10423,7 +10424,9 @@ function process(txt){
   }else{
     $('err').innerHTML='✅ Es un QR de pago válido, pero <b>no se encontró una llave Bre-B</b> en él. Mirá los campos abajo.';
   }
+  goTop();
 }
+function goTop(){ try{ window.scrollTo({top:0,behavior:'smooth'}); }catch(e){ window.scrollTo(0,0); } }
 function decodeRaw(){ process($('raw').value); }
 function resetUI(){
   $('raw').value=''; $('err').innerHTML='';
