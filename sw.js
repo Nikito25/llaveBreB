@@ -1,5 +1,5 @@
 /* Service Worker - cachea la app para uso offline tras la 1a visita */
-const CACHE = 'breb-v6';
+const CACHE = 'breb-v7';
 const ASSETS = ['./', './index.html', './manifest.webmanifest', './icon.svg'];
 
 self.addEventListener('install', e => {

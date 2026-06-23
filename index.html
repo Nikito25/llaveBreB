@@ -70,6 +70,19 @@
   <h1>🔑 Decodificador QR Bre-B</h1>
   <p class="sub">Pegá (Ctrl+V), subí, arrastrá una imagen o usá la cámara. Te extrae la llave.</p>
 
+  <div id="err" class="err"></div>
+
+  <div id="keybox" class="keybox">
+    <div class="keylabel">Llave Bre-B detectada</div>
+    <div id="keyval" class="keyval"></div>
+    <div id="keytype" class="keytype"></div>
+    <button class="copy" onclick="copyKey()">Copiar llave</button>
+  </div>
+
+  <div id="payInfo" class="card" style="display:none">
+    <div id="payInfoBody"></div>
+  </div>
+
   <div class="card">
     <div id="drop" class="drop">
       <div style="font-size:30px">📷</div>
@@ -94,18 +107,6 @@
     <div class="row">
       <button onclick="decodeRaw()">Decodificar texto</button>
     </div>
-    <div id="err" class="err"></div>
-  </div>
-
-  <div id="keybox" class="keybox">
-    <div class="keylabel">Llave Bre-B detectada</div>
-    <div id="keyval" class="keyval"></div>
-    <div id="keytype" class="keytype"></div>
-    <button class="copy" onclick="copyKey()">Copiar llave</button>
-  </div>
-
-  <div id="payInfo" class="card" style="display:none">
-    <div id="payInfoBody"></div>
   </div>
 
   <div class="card" id="resultCard" style="display:none">
@@ -10361,25 +10362,40 @@ function renderTree(items, container, candidates){
 }
 function escapeHtml(s){return s.replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]))}
 
+let lastMonto='';
 function renderPayInfo(items){
   const top={}; items.forEach(it=>{ if(!(it.tag in top)) top[it.tag]=it.val; });
-  const rows=[];
+  let montoHtml='';
   if(top['54']){
     const n=parseFloat(top['54']);
     const cur = top['53']==='170'?'COP':top['53']==='840'?'USD':(top['53']||'');
+    lastMonto = top['54'].replace(/\.0+$/,'');
     const shown = isNaN(n)?top['54']:n.toLocaleString('es-CO',{minimumFractionDigits:2});
-    rows.push(['💲 Monto','$'+shown+(cur?(' '+cur):'')]);
+    montoHtml = '<div class="keyval" style="font-size:22px">$'+shown+(cur?(' '+cur):'')+'</div>'+
+                '<button class="copy" onclick="copyMonto()">Copiar monto</button>';
   } else {
-    rows.push(['💲 Monto','Sin monto fijo (lo ingresás vos al pagar)']);
+    lastMonto='';
+    montoHtml = '<div class="keytype">Sin monto fijo (lo ingresás vos al pagar)</div>';
   }
-  if(top['01']) rows.push(['Tipo de QR', top['01']==='12'?'Dinámico (uso único)':top['01']==='11'?'Estático (reutilizable)':top['01']]);
-  if(top['59'] && top['59']!=='0') rows.push(['Comercio', top['59']]);
-  if(top['60'] && top['60']!=='0') rows.push(['Ciudad', top['60']]);
-  let h='<div class="keylabel">Datos del pago</div><table>';
-  for(const r of rows){ h+='<tr><td style="color:var(--muted);white-space:nowrap;padding-right:12px">'+r[0]+'</td><td class="val">'+escapeHtml(String(r[1]))+'</td></tr>'; }
-  h+='</table>';
+  const extra=[];
+  if(top['01']) extra.push(['Tipo de QR', top['01']==='12'?'Dinámico (uso único)':top['01']==='11'?'Estático (reutilizable)':top['01']]);
+  if(top['59'] && top['59']!=='0') extra.push(['Comercio', top['59']]);
+  if(top['60'] && top['60']!=='0') extra.push(['Ciudad', top['60']]);
+  let h='<div class="keylabel">💲 Monto</div>'+montoHtml;
+  if(extra.length){
+    h+='<table style="margin-top:12px">';
+    for(const r of extra){ h+='<tr><td style="color:var(--muted);white-space:nowrap;padding-right:12px">'+r[0]+'</td><td class="val">'+escapeHtml(String(r[1]))+'</td></tr>'; }
+    h+='</table>';
+  }
   $('payInfoBody').innerHTML=h;
   $('payInfo').style.display='block';
+}
+function copyMonto(){
+  if(!lastMonto) return;
+  navigator.clipboard.writeText(lastMonto).then(()=>{
+    const bs=document.querySelectorAll('#payInfo .copy'); const b=bs[bs.length-1]; if(!b) return;
+    const t=b.textContent; b.textContent='✓ Copiado'; setTimeout(()=>b.textContent=t,1200);
+  });
 }
 function process(txt){
   $('err').innerHTML='';
