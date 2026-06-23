@@ -59,7 +59,7 @@
   .nest{padding-left:14px; border-left:2px solid var(--line)}
   .hint{color:var(--muted); font-size:12px; margin-top:4px}
   .err{color:#ff7a7a; font-size:13px; margin-top:8px}
-  video{width:100%; border-radius:10px; margin-top:10px; display:none; background:#000}
+  video{width:100%; max-height:55vh; object-fit:cover; border-radius:10px; margin-top:10px; display:none; background:#000}
   .cand{color:var(--warn)}
   details summary{cursor:pointer; color:var(--muted); font-size:13px}
   #preview{max-width:160px; border-radius:8px; margin-top:10px; display:none}
@@ -10494,7 +10494,7 @@ async function toggleCam(){
       if(adv.length) await videoTrack.applyConstraints({advanced:adv});
       setupZoom(caps);
     }catch(e){}
-    $('camBtn').textContent='⏹ Detener cámara'; scanning=true; scanLoop();
+    $('camBtn').textContent='⏹ Detener cámara'; v.scrollIntoView({behavior:'smooth',block:'center'}); scanning=true; scanLoop();
   }catch(e){ $('err').textContent='No se pudo abrir la cámara: '+e.message; }
 }
 function setupZoom(caps){
@@ -10544,7 +10544,7 @@ async function scanLoop(){
         if(code&&code.data) txt=code.data;
       }
     }
-    if(txt){ $('raw').value=txt; process(txt); stopCam(); return; }
+    if(txt){ stopCam(); $('raw').value=txt; process(txt); window.scrollTo(0,0); return; }
   }
   requestAnimationFrame(scanLoop);
 }
