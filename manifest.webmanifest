@@ -1,0 +1,14 @@
+{
+  "name": "Decodificador QR Bre-B",
+  "short_name": "Llave Bre-B",
+  "description": "Decodifica un QR de pago y extrae la llave Bre-B. Funciona offline.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0f1220",
+  "theme_color": "#0f1220",
+  "icons": [
+    { "src": "./icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}
