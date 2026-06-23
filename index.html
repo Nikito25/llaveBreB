@@ -10220,47 +10220,46 @@ const $ = id => document.getElementById(id);
 let lastKey = '';
 
 /* ---------- 1. LECTURA DE IMAGEN (QR -> texto) ---------- */
+const loadImg = src => new Promise((res,rej)=>{
+  const i=new Image(); i.onload=()=>res(i); i.onerror=()=>rej('No se pudo cargar la imagen.'); i.src=src;
+});
+const microPause = ()=>new Promise(r=>setTimeout(r,0));   // deja respirar a la UI
+
 async function imageToText(imgSrc){
-  // Intento 1: BarcodeDetector nativo (rápido, offline, Chrome/Android)
+  const img = await loadImg(imgSrc);
+  // Intento 1: BarcodeDetector nativo (rápido, no congela, Chrome/Android)
   try{
     if('BarcodeDetector' in window){
       const det = new BarcodeDetector({formats:['qr_code']});
-      const bmp = await createImageBitmap(await (await fetch(imgSrc)).blob());
-      const codes = await det.detect(bmp);
+      const codes = await det.detect(img);
       if(codes.length) return codes[0].rawValue;
     }
   }catch(e){/* sigue al fallback */}
 
-  // Intento 2: jsQR sobre canvas, probando varias escalas (las fotos del celu son enormes)
-  return await new Promise((res,rej)=>{
-    const img = new Image();
-    img.onload = ()=>{
-      const big = Math.max(img.width, img.height);
-      const targets = [big, 1500, 900, 600];   // original + reducciones
-      for(const t of targets){
-        const scale = t>=big ? 1 : t/big;
-        const w = Math.max(1, Math.round(img.width*scale));
-        const h = Math.max(1, Math.round(img.height*scale));
-        const c = document.createElement('canvas');
-        c.width = w; c.height = h;
-        const ctx = c.getContext('2d');
-        ctx.drawImage(img,0,0,w,h);
-        const data = ctx.getImageData(0,0,w,h);
-        if(typeof jsQR!=='undefined'){
-          const code = jsQR(data.data, w, h, {inversionAttempts:'attemptBoth'});
-          if(code && code.data){ res(code.data); return; }
-        }
-      }
-      rej('No se detectó ningún QR en la imagen. Tip: foto de frente, enfocada, que el QR ocupe casi todo el cuadro y con buena luz.');
-    };
-    img.onerror = ()=>rej('No se pudo cargar la imagen.');
-    img.src = imgSrc;
-  });
+  // Intento 2: jsQR, SIEMPRE sobre una versión reducida (las fotos del celu son enormes y bloquean)
+  const big = Math.max(img.width, img.height);
+  const targets = [1400, 1000, 800, 600];   // tamaños máximos a probar (nunca el original)
+  for(const t of targets){
+    await microPause();                      // permite pintar "Leyendo…" y no tildar
+    const scale = Math.min(1, t/big);
+    const w = Math.max(1, Math.round(img.width*scale));
+    const h = Math.max(1, Math.round(img.height*scale));
+    const c = document.createElement('canvas');
+    c.width = w; c.height = h;
+    const ctx = c.getContext('2d', {willReadFrequently:true});
+    ctx.drawImage(img,0,0,w,h);
+    const data = ctx.getImageData(0,0,w,h);
+    if(typeof jsQR!=='undefined'){
+      const code = jsQR(data.data, w, h, {inversionAttempts:'attemptBoth'});
+      if(code && code.data) return code.data;
+    }
+  }
+  throw 'No se detectó ningún QR en la imagen. Tip: foto de frente, bien enfocada, que el QR ocupe casi todo el cuadro y con buena luz.';
 }
 
 function handleImage(src){
   $('preview').src = src; $('preview').style.display='block';
-  $('err').textContent = '';
+  $('err').innerHTML = '⏳ Leyendo el QR…';
   imageToText(src)
     .then(txt=>{ $('raw').value = txt; process(txt); })
     .catch(e=>{ $('err').textContent = e; });
