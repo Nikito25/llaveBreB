@@ -84,6 +84,8 @@
     </div>
     <input type="file" id="file" accept="image/*" style="display:none">
     <video id="video" playsinline></video>
+    <input type="range" id="zoom" style="display:none;width:100%;margin-top:8px" aria-label="Zoom">
+    <div id="zoomHint" class="hint" style="display:none">Deslizá para hacer zoom si el QR es chico</div>
   </div>
 
   <div class="card">
@@ -10423,38 +10425,74 @@ drop.addEventListener('drop',e=>{
 });
 
 /* ---------- 7. CÁMARA ---------- */
-let stream=null, scanning=false;
+let stream=null, scanning=false, videoTrack=null;
 async function toggleCam(){
   const v=$('video');
   if(stream){ stopCam(); return; }
   try{
-    stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}});
+    // máxima resolución + cámara trasera
+    stream=await navigator.mediaDevices.getUserMedia({
+      video:{ facingMode:{ideal:'environment'}, width:{ideal:2560}, height:{ideal:1440} }
+    });
     v.srcObject=stream; v.style.display='block'; await v.play();
+    videoTrack=stream.getVideoTracks()[0];
+    try{
+      const caps=videoTrack.getCapabilities ? videoTrack.getCapabilities() : {};
+      const adv=[];
+      if(caps.focusMode && caps.focusMode.includes('continuous')) adv.push({focusMode:'continuous'});
+      if(adv.length) await videoTrack.applyConstraints({advanced:adv});
+      setupZoom(caps);
+    }catch(e){}
     $('camBtn').textContent='⏹ Detener cámara'; scanning=true; scanLoop();
   }catch(e){ $('err').textContent='No se pudo abrir la cámara: '+e.message; }
 }
+function setupZoom(caps){
+  const z=$('zoom'), hint=$('zoomHint');
+  if(caps && caps.zoom && caps.zoom.max>caps.zoom.min){
+    z.min=caps.zoom.min; z.max=caps.zoom.max; z.step=caps.zoom.step||0.1; z.value=caps.zoom.min;
+    z.style.display='block'; hint.style.display='block';
+    z.oninput=()=>{ try{ videoTrack.applyConstraints({advanced:[{zoom:parseFloat(z.value)}]}); }catch(e){} };
+  }else{ z.style.display='none'; hint.style.display='none'; }
+}
 function stopCam(){
   scanning=false; if(stream){stream.getTracks().forEach(t=>t.stop()); stream=null;}
-  $('video').style.display='none'; $('camBtn').textContent='📸 Usar cámara';
+  videoTrack=null; $('video').style.display='none';
+  $('zoom').style.display='none'; $('zoomHint').style.display='none';
+  $('camBtn').textContent='📸 Usar cámara';
 }
 async function scanLoop(){
   if(!scanning) return;
   const v=$('video');
-  if(v.readyState===v.HAVE_ENOUGH_DATA){
-    const c=document.createElement('canvas');
-    c.width=v.videoWidth; c.height=v.videoHeight;
-    const ctx=c.getContext('2d'); ctx.drawImage(v,0,0,c.width,c.height);
+  if(v.readyState===v.HAVE_ENOUGH_DATA && v.videoWidth){
     let txt=null;
+    // 1) lector nativo directo sobre el video (rápido)
     try{
       if('BarcodeDetector' in window){
         const det=new BarcodeDetector({formats:['qr_code']});
-        const codes=await det.detect(c); if(codes.length) txt=codes[0].rawValue;
-      }
-      if(!txt && typeof jsQR!=='undefined'){
-        const d=ctx.getImageData(0,0,c.width,c.height);
-        const code=jsQR(d.data,c.width,c.height); if(code) txt=code.data;
+        const codes=await det.detect(v); if(codes.length) txt=codes[0].rawValue;
       }
     }catch(e){}
+    // 2) fallback jsQR (iOS/otros): frame reducido + centro ampliado
+    if(!txt && typeof jsQR!=='undefined'){
+      const vw=v.videoWidth, vh=v.videoHeight;
+      const cap=1280, sc=Math.min(1,cap/Math.max(vw,vh));
+      const w=Math.round(vw*sc), h=Math.round(vh*sc);
+      const c=document.createElement('canvas'); c.width=w; c.height=h;
+      const ctx=c.getContext('2d',{willReadFrequently:true}); ctx.drawImage(v,0,0,w,h);
+      let d=ctx.getImageData(0,0,w,h);
+      let code=jsQR(d.data,w,h,{inversionAttempts:'attemptBoth'});
+      if(code&&code.data) txt=code.data;
+      if(!txt){   // zona central ampliada (ayuda con QR chicos)
+        const side=Math.floor(Math.min(vw,vh)*0.55);
+        const sx=Math.floor((vw-side)/2), sy=Math.floor((vh-side)/2);
+        const cc=document.createElement('canvas'); cc.width=900; cc.height=900;
+        const cx=cc.getContext('2d',{willReadFrequently:true});
+        cx.drawImage(v,sx,sy,side,side,0,0,900,900);
+        d=cx.getImageData(0,0,900,900);
+        code=jsQR(d.data,900,900,{inversionAttempts:'attemptBoth'});
+        if(code&&code.data) txt=code.data;
+      }
+    }
     if(txt){ $('raw').value=txt; process(txt); stopCam(); return; }
   }
   requestAnimationFrame(scanLoop);
