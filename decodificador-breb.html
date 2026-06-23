@@ -10316,15 +10316,15 @@ function findKey(items, found=[]){
         const type = classify(sx.val);
         if(keyTpl){
           // está dentro de un template LLAVE → es la llave, máxima prioridad
-          found.push({val:sx.val.trim(), type: type||'Llave (campo LLAVE)', pr:-1, tag:it.tag+'.'+sx.tag, gui});
+          found.push({val:sx.val.trim(), type: type||'Llave (campo LLAVE)', pr:-1, tag:it.tag+'.'+sx.tag, gui, src:'gui'});
         } else if(type){
-          found.push({val:sx.val.trim(), type, pr:PRIO.indexOf(type), tag:it.tag+'.'+sx.tag, gui});
+          found.push({val:sx.val.trim(), type, pr:PRIO.indexOf(type), tag:it.tag+'.'+sx.tag, gui, src:'fmt'});
         }
       }
       continue;
     }
     const type = classify(it.val);
-    if(type) found.push({val:it.val.trim(), type, pr:PRIO.indexOf(type), tag:it.tag, gui:''});
+    if(type) found.push({val:it.val.trim(), type, pr:PRIO.indexOf(type), tag:it.tag, gui:'', src:'fmt'});
   }
   found.sort((a,b)=>a.pr-b.pr);
   return found;
@@ -10335,14 +10335,14 @@ function renderTree(items, container, candidates){
   const tbl = document.createElement('table');
   for(const it of items){
     const tr = document.createElement('tr');
-    const isCand = candidates.some(c=>c.val===it.val.trim());
+    const _c = candidates.find(c=>c.val===it.val.trim()); const isCand = !!_c;
     let sub = null;
     if(isTemplate(it.tag) && /^\d{2}\d{2}/.test(it.val)){
       const p = parseTLV(it.val);
       if(p.length && p.reduce((a,x)=>a+x.len+4,0)<=it.val.length+2) sub = p;
     }
     tr.innerHTML = `<td class="tag">${it.tag}</td>
-      <td class="val ${isCand?'cand':''}">${sub?'':escapeHtml(it.val)}${isCand?' ◄ posible llave':''}</td>`;
+      <td class="val ${isCand?'cand':''}">${sub?'':escapeHtml(it.val)}${_c?(_c.src==='gui'?' ◄ LLAVE ✓':' ◄ posible llave'):''}</td>`;
     tbl.appendChild(tr);
     if(sub){
       const wrap = document.createElement('tr');
@@ -10362,7 +10362,20 @@ function renderPayInfo(items){
     const n=parseFloat(top['54']);
     const cur = top['53']==='170'?'COP':top['53']==='840'?'USD':(top['53']||'');
     const shown = isNaN(n)?top['54']:n.toLocaleString('es-CO',{minimumFractionDigits:2});
-    rows.push(['\uD83D\uDCB2 Monto','
+    rows.push(['💲 Monto','$'+shown+(cur?(' '+cur):'')]);
+  } else {
+    rows.push(['💲 Monto','Sin monto fijo (lo ingresás vos al pagar)']);
+  }
+  if(top['01']) rows.push(['Tipo de QR', top['01']==='12'?'Dinámico (uso único)':top['01']==='11'?'Estático (reutilizable)':top['01']]);
+  if(top['59'] && top['59']!=='0') rows.push(['Comercio', top['59']]);
+  if(top['60'] && top['60']!=='0') rows.push(['Ciudad', top['60']]);
+  let h='<div class="keylabel">Datos del pago</div><table>';
+  for(const r of rows){ h+='<tr><td style="color:var(--muted);white-space:nowrap;padding-right:12px">'+r[0]+'</td><td class="val">'+escapeHtml(String(r[1]))+'</td></tr>'; }
+  h+='</table>';
+  $('payInfoBody').innerHTML=h;
+  $('payInfo').style.display='block';
+}
+function process(txt){
   $('err').innerHTML='';
   $('keybox').classList.remove('show');
   $('payInfo').style.display='none';
@@ -10380,10 +10393,16 @@ function renderPayInfo(items){
   renderPayInfo(items);
   renderTree(items, $('tree'), cands);
   if(cands.length){
-    lastKey = cands[0].val;
-    $('keyval').textContent = cands[0].val;
-    $('keytype').textContent = 'Tipo: ' + cands[0].type +
-      (cands.length>1 ? '  ·  otros candidatos: '+cands.slice(1).map(c=>c.val).join(', ') : '');
+    const k=cands[0];
+    lastKey = k.val;
+    $('keyval').textContent = k.val;
+    const conf = k.src==='gui'
+      ? '✓ Confirmada — el QR rotula este campo como LLAVE'
+      : '≈ Estimada por formato — el QR no rotula la llave, verificá antes de pagar';
+    const col = k.src==='gui' ? 'var(--accent2)' : 'var(--warn)';
+    $('keytype').innerHTML = 'Tipo: ' + escapeHtml(k.type) +
+      '<br><span style="color:'+col+'">'+conf+'</span>' +
+      (cands.length>1 ? '<br><span class="hint">Otros candidatos: '+cands.slice(1).map(c=>escapeHtml(c.val)).join(', ')+'</span>' : '');
     $('keybox').classList.add('show');
   }else{
     $('err').innerHTML='✅ Es un QR de pago válido, pero <b>no se encontró una llave Bre-B</b> en él. Mirá los campos abajo.';
@@ -10395,162 +10414,6 @@ function resetUI(){
   $('preview').src=''; $('preview').style.display='none';
   $('keybox').classList.remove('show'); lastKey='';
   $('resultCard').style.display='none'; $('tree').innerHTML=''; $('payInfo').style.display='none';
-  $('file').value='';
-  try{ if(stream) stopCam(); }catch(e){}
-}
-
-/* ---------- 5. COPIAR ---------- */
-function copyKey(){
-  navigator.clipboard.writeText(lastKey).then(()=>{
-    const b=document.querySelector('.copy'); const t=b.textContent;
-    b.textContent='✓ Copiada'; setTimeout(()=>b.textContent=t,1200);
-  });
-}
-
-/* ---------- 6. ENTRADAS: archivo, pegar, drag, cámara ---------- */
-$('file').onchange = e=>{
-  const f=e.target.files[0]; e.target.value=''; if(!f) return;
-  const r=new FileReader(); r.onload=()=>handleImage(r.result); r.readAsDataURL(f);
-};
-window.addEventListener('paste', e=>{
-  const items=e.clipboardData.items;
-  for(const it of items){
-    if(it.type.startsWith('image/')){
-      const r=new FileReader(); r.onload=()=>handleImage(r.result); r.readAsDataURL(it.getAsFile());
-      return;
-    }
-  }
-  const t=e.clipboardData.getData('text');
-  if(t && /^\d{2}\d{2}/.test(t.trim())){ $('raw').value=t.trim(); process(t.trim()); }
-});
-const drop=$('drop');
-['dragenter','dragover'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.add('hover')}));
-['dragleave','drop'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove('hover')}));
-drop.addEventListener('drop',e=>{
-  const f=e.dataTransfer.files[0]; if(!f) return;
-  const r=new FileReader(); r.onload=()=>handleImage(r.result); r.readAsDataURL(f);
-});
-
-/* ---------- 7. CÁMARA ---------- */
-let stream=null, scanning=false, videoTrack=null;
-async function toggleCam(){
-  const v=$('video');
-  if(stream){ stopCam(); return; }
-  try{
-    // máxima resolución + cámara trasera
-    stream=await navigator.mediaDevices.getUserMedia({
-      video:{ facingMode:{ideal:'environment'}, width:{ideal:2560}, height:{ideal:1440} }
-    });
-    v.srcObject=stream; v.style.display='block'; await v.play();
-    videoTrack=stream.getVideoTracks()[0];
-    try{
-      const caps=videoTrack.getCapabilities ? videoTrack.getCapabilities() : {};
-      const adv=[];
-      if(caps.focusMode && caps.focusMode.includes('continuous')) adv.push({focusMode:'continuous'});
-      if(adv.length) await videoTrack.applyConstraints({advanced:adv});
-      setupZoom(caps);
-    }catch(e){}
-    $('camBtn').textContent='⏹ Detener cámara'; scanning=true; scanLoop();
-  }catch(e){ $('err').textContent='No se pudo abrir la cámara: '+e.message; }
-}
-function setupZoom(caps){
-  const z=$('zoom'), hint=$('zoomHint');
-  if(caps && caps.zoom && caps.zoom.max>caps.zoom.min){
-    z.min=caps.zoom.min; z.max=caps.zoom.max; z.step=caps.zoom.step||0.1; z.value=caps.zoom.min;
-    z.style.display='block'; hint.style.display='block';
-    z.oninput=()=>{ try{ videoTrack.applyConstraints({advanced:[{zoom:parseFloat(z.value)}]}); }catch(e){} };
-  }else{ z.style.display='none'; hint.style.display='none'; }
-}
-function stopCam(){
-  scanning=false; if(stream){stream.getTracks().forEach(t=>t.stop()); stream=null;}
-  videoTrack=null; $('video').style.display='none';
-  $('zoom').style.display='none'; $('zoomHint').style.display='none';
-  $('camBtn').textContent='📸 Usar cámara';
-}
-async function scanLoop(){
-  if(!scanning) return;
-  const v=$('video');
-  if(v.readyState===v.HAVE_ENOUGH_DATA && v.videoWidth){
-    let txt=null;
-    // 1) lector nativo directo sobre el video (rápido)
-    try{
-      if('BarcodeDetector' in window){
-        const det=new BarcodeDetector({formats:['qr_code']});
-        const codes=await det.detect(v); if(codes.length) txt=codes[0].rawValue;
-      }
-    }catch(e){}
-    // 2) fallback jsQR (iOS/otros): frame reducido + centro ampliado
-    if(!txt && typeof jsQR!=='undefined'){
-      const vw=v.videoWidth, vh=v.videoHeight;
-      const cap=1280, sc=Math.min(1,cap/Math.max(vw,vh));
-      const w=Math.round(vw*sc), h=Math.round(vh*sc);
-      const c=document.createElement('canvas'); c.width=w; c.height=h;
-      const ctx=c.getContext('2d',{willReadFrequently:true}); ctx.drawImage(v,0,0,w,h);
-      let d=ctx.getImageData(0,0,w,h);
-      let code=jsQR(d.data,w,h,{inversionAttempts:'attemptBoth'});
-      if(code&&code.data) txt=code.data;
-      if(!txt){   // zona central ampliada (ayuda con QR chicos)
-        const side=Math.floor(Math.min(vw,vh)*0.55);
-        const sx=Math.floor((vw-side)/2), sy=Math.floor((vh-side)/2);
-        const cc=document.createElement('canvas'); cc.width=900; cc.height=900;
-        const cx=cc.getContext('2d',{willReadFrequently:true});
-        cx.drawImage(v,sx,sy,side,side,0,0,900,900);
-        d=cx.getImageData(0,0,900,900);
-        code=jsQR(d.data,900,900,{inversionAttempts:'attemptBoth'});
-        if(code&&code.data) txt=code.data;
-      }
-    }
-    if(txt){ $('raw').value=txt; process(txt); stopCam(); return; }
-  }
-  requestAnimationFrame(scanLoop);
-}
-</script>
-</body>
-</html>
-+shown+(cur?(' '+cur):'')]);
-  } else {
-    rows.push(['\uD83D\uDCB2 Monto','Sin monto fijo (lo ingresás vos al pagar)']);
-  }
-  if(top['01']) rows.push(['Tipo de QR', top['01']==='12'?'Dinámico (uso único)':top['01']==='11'?'Estático (reutilizable)':top['01']]);
-  if(top['59'] && top['59']!=='0') rows.push(['Comercio', top['59']]);
-  if(top['60'] && top['60']!=='0') rows.push(['Ciudad', top['60']]);
-  let h='<div class="keylabel">Datos del pago</div><table>';
-  for(const r of rows){ h+='<tr><td style="color:var(--muted);white-space:nowrap;padding-right:12px">'+r[0]+'</td><td class="val">'+escapeHtml(String(r[1]))+'</td></tr>'; }
-  h+='</table>';
-  $('payInfoBody').innerHTML=h;
-  $('payInfo').style.display='block';
-}
-function process(txt){
-  $('err').innerHTML='';
-  $('keybox').classList.remove('show');
-  txt = txt.trim();
-  if(!txt){ $('err').textContent='Vacío.'; return; }
-  const items = parseTLV(txt);
-  const esEMV = items.length && items[0].tag==='00';   // un QR de pago empieza con el campo 00
-  if(!esEMV){
-    $('resultCard').style.display='none';
-    $('err').innerHTML = '⚠️ Este QR <b>no es un QR de pago Bre-B</b> (no tiene formato EMVCo).<br>Contenido leído: <span style="word-break:break-all">'+escapeHtml(txt)+'</span>';
-    return;
-  }
-  const cands = findKey(items);
-  $('resultCard').style.display='block';
-  renderTree(items, $('tree'), cands);
-  if(cands.length){
-    lastKey = cands[0].val;
-    $('keyval').textContent = cands[0].val;
-    $('keytype').textContent = 'Tipo: ' + cands[0].type +
-      (cands.length>1 ? '  ·  otros candidatos: '+cands.slice(1).map(c=>c.val).join(', ') : '');
-    $('keybox').classList.add('show');
-  }else{
-    $('err').innerHTML='✅ Es un QR de pago válido, pero <b>no se encontró una llave Bre-B</b> en él. Mirá los campos abajo.';
-  }
-}
-function decodeRaw(){ process($('raw').value); }
-function resetUI(){
-  $('raw').value=''; $('err').innerHTML='';
-  $('preview').src=''; $('preview').style.display='none';
-  $('keybox').classList.remove('show'); lastKey='';
-  $('resultCard').style.display='none'; $('tree').innerHTML='';
   $('file').value='';
   try{ if(stream) stopCam(); }catch(e){}
 }
