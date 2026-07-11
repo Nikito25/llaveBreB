@@ -10496,7 +10496,10 @@ async function toggleCam(){
 function setupZoom(caps){
   const z=$('zoom'), hint=$('zoomHint');
   if(caps && caps.zoom && caps.zoom.max>caps.zoom.min){
-    z.min=caps.zoom.min; z.max=caps.zoom.max; z.step=caps.zoom.step||0.1; z.value=caps.zoom.min;
+    z.min=caps.zoom.min; z.max=caps.zoom.max; z.step=caps.zoom.step||0.1;
+    const z0=Math.min(caps.zoom.max, Math.max(caps.zoom.min, 2));   // arranca ~2x
+    z.value=z0;
+    try{ videoTrack.applyConstraints({advanced:[{zoom:z0}]}); }catch(e){}
     z.style.display='block'; hint.style.display='block';
     z.oninput=()=>{ try{ videoTrack.applyConstraints({advanced:[{zoom:parseFloat(z.value)}]}); }catch(e){} };
   }else{ z.style.display='none'; hint.style.display='none'; }
@@ -10513,14 +10516,10 @@ async function captureNow(){
   const v=$('video');
   try{
     let dataUrl=null;
-    // foto a máxima resolución del sensor (mejor para QR chicos)
-    if(imageCapturer && imageCapturer.takePhoto){
-      try{ const blob=await imageCapturer.takePhoto(); dataUrl=await blobToDataURL(blob); }catch(e){}
-    }
-    if(!dataUrl && imageCapturer && imageCapturer.grabFrame){
+    if(imageCapturer && imageCapturer.grabFrame){   // rápido y a buena resolución
       try{ const bmp=await imageCapturer.grabFrame(); const c=document.createElement('canvas'); c.width=bmp.width; c.height=bmp.height; c.getContext('2d').drawImage(bmp,0,0); dataUrl=c.toDataURL('image/png'); }catch(e){}
     }
-    if(!dataUrl && v.videoWidth){   // fallback: frame del video
+    if(!dataUrl && v.videoWidth){   // fallback: frame del video (ya viene con zoom)
       const c=document.createElement('canvas'); c.width=v.videoWidth; c.height=v.videoHeight;
       c.getContext('2d',{willReadFrequently:true}).drawImage(v,0,0); dataUrl=c.toDataURL('image/png');
     }
