@@ -87,6 +87,7 @@
     <div class="row">
       <button onclick="document.getElementById('file').click()">📁 Subir imagen</button>
       <button class="alt" id="camBtn" onclick="toggleCam()">📸 Usar cámara</button>
+      <button id="capBtn" onclick="captureNow()" style="display:none">✅ Capturar QR</button>
       <button class="alt" onclick="resetUI()">🗑️ Limpiar</button>
     </div>
     <input type="file" id="file" accept="image/*" style="display:none">
@@ -10470,7 +10471,7 @@ drop.addEventListener('drop',e=>{
 });
 
 /* ---------- 7. CÁMARA ---------- */
-let stream=null, scanning=false, videoTrack=null;
+let stream=null, scanning=false, videoTrack=null, imageCapturer=null;
 async function toggleCam(){
   const v=$('video');
   if(stream){ stopCam(); return; }
@@ -10488,7 +10489,8 @@ async function toggleCam(){
       if(adv.length) await videoTrack.applyConstraints({advanced:adv});
       setupZoom(caps);
     }catch(e){}
-    $('camBtn').textContent='⏹ Detener cámara'; v.scrollIntoView({behavior:'smooth',block:'center'}); scanning=true; scanLoop();
+    try{ imageCapturer = ('ImageCapture' in window) ? new ImageCapture(videoTrack) : null; }catch(e){ imageCapturer=null; }
+    $('camBtn').textContent='⏹ Detener cámara'; $('capBtn').style.display='inline-block'; v.scrollIntoView({behavior:'smooth',block:'center'}); scanning=true; scanLoop();
   }catch(e){ $('err').textContent='No se pudo abrir la cámara: '+e.message; }
 }
 function setupZoom(caps){
@@ -10504,6 +10506,27 @@ function stopCam(){
   videoTrack=null; $('video').style.display='none';
   $('zoom').style.display='none'; $('zoomHint').style.display='none';
   $('camBtn').textContent='📸 Usar cámara';
+  $('capBtn').style.display='none'; imageCapturer=null;
+}
+function blobToDataURL(blob){ return new Promise((res,rej)=>{ const r=new FileReader(); r.onload=()=>res(r.result); r.onerror=rej; r.readAsDataURL(blob); }); }
+async function captureNow(){
+  const v=$('video');
+  try{
+    let dataUrl=null;
+    // foto a máxima resolución del sensor (mejor para QR chicos)
+    if(imageCapturer && imageCapturer.takePhoto){
+      try{ const blob=await imageCapturer.takePhoto(); dataUrl=await blobToDataURL(blob); }catch(e){}
+    }
+    if(!dataUrl && imageCapturer && imageCapturer.grabFrame){
+      try{ const bmp=await imageCapturer.grabFrame(); const c=document.createElement('canvas'); c.width=bmp.width; c.height=bmp.height; c.getContext('2d').drawImage(bmp,0,0); dataUrl=c.toDataURL('image/png'); }catch(e){}
+    }
+    if(!dataUrl && v.videoWidth){   // fallback: frame del video
+      const c=document.createElement('canvas'); c.width=v.videoWidth; c.height=v.videoHeight;
+      c.getContext('2d',{willReadFrequently:true}).drawImage(v,0,0); dataUrl=c.toDataURL('image/png');
+    }
+    stopCam();
+    if(dataUrl) handleImage(dataUrl); else $('err').textContent='No se pudo capturar la imagen.';
+  }catch(e){ stopCam(); $('err').textContent='No se pudo capturar: '+(e.message||e); }
 }
 async function scanLoop(){
   if(!scanning) return;
