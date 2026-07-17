@@ -10244,16 +10244,15 @@ async function imageToText(imgSrc){
     }
   }catch(e){/* sigue al fallback */}
 
-  // Intento 2: jsQR, SIEMPRE sobre una versión reducida (las fotos del celu son enormes y bloquean)
+  // Intento 2: jsQR sobre versión reducida (rápido)
   const big = Math.max(img.width, img.height);
-  const targets = [1400, 1000, 800, 600];   // tamaños máximos a probar (nunca el original)
+  const targets = [1400, 900];
   for(const t of targets){
-    await microPause();                      // permite pintar "Leyendo…" y no tildar
+    await microPause();
     const scale = Math.min(1, t/big);
     const w = Math.max(1, Math.round(img.width*scale));
     const h = Math.max(1, Math.round(img.height*scale));
-    const c = document.createElement('canvas');
-    c.width = w; c.height = h;
+    const c = document.createElement('canvas'); c.width = w; c.height = h;
     const ctx = c.getContext('2d', {willReadFrequently:true});
     ctx.drawImage(img,0,0,w,h);
     const data = ctx.getImageData(0,0,w,h);
@@ -10261,6 +10260,18 @@ async function imageToText(imgSrc){
       const code = jsQR(data.data, w, h, {inversionAttempts:'attemptBoth'});
       if(code && code.data) return code.data;
     }
+  }
+  // Intento 3: centro ampliado (QR chico dentro de la foto)
+  if(typeof jsQR!=='undefined'){
+    await microPause();
+    const side = Math.floor(Math.min(img.width, img.height)*0.6);
+    const sx = Math.floor((img.width-side)/2), sy = Math.floor((img.height-side)/2);
+    const cc = document.createElement('canvas'); cc.width = 1000; cc.height = 1000;
+    const cx = cc.getContext('2d', {willReadFrequently:true});
+    cx.drawImage(img, sx,sy,side,side, 0,0,1000,1000);
+    const dd = cx.getImageData(0,0,1000,1000);
+    const code = jsQR(dd.data, 1000, 1000, {inversionAttempts:'attemptBoth'});
+    if(code && code.data) return code.data;
   }
   throw 'No se detectó ningún QR en la imagen. Tip: foto de frente, bien enfocada, que el QR ocupe casi todo el cuadro y con buena luz.';
 }
@@ -10533,38 +10544,33 @@ async function captureNow(){
     if(dataUrl) handleImage(dataUrl); else $('err').textContent='No se pudo capturar la imagen.';
   }catch(e){ stopCam(); $('err').textContent='No se pudo capturar: '+(e.message||e); }
 }
+let lastScan=0;
 async function scanLoop(){
   if(!scanning) return;
+  if(performance.now()-lastScan < 140){ requestAnimationFrame(scanLoop); return; }  // ~7 veces/seg: fluido
+  lastScan=performance.now();
   const v=$('video');
   if(v.readyState===v.HAVE_ENOUGH_DATA && v.videoWidth){
+    const vw=v.videoWidth, vh=v.videoHeight;
     let txt=null;
-    // 1) lector nativo directo sobre el video (rápido)
+    // centro ampliado (zoom digital a 800px): clave para leer QR chicos en vivo
+    const side=Math.floor(Math.min(vw,vh)*0.7);
+    const sx=Math.floor((vw-side)/2), sy=Math.floor((vh-side)/2);
+    const cc=document.createElement('canvas'); cc.width=800; cc.height=800;
+    const cx=cc.getContext('2d',{willReadFrequently:true});
+    cx.drawImage(v, sx,sy,side,side, 0,0,800,800);
     try{
       if('BarcodeDetector' in window){
         const det=new BarcodeDetector({formats:['qr_code']});
-        const codes=await det.detect(v); if(codes.length) txt=codes[0].rawValue;
+        let codes=await det.detect(v);                 // cuadro completo (rápido)
+        if(!codes.length) codes=await det.detect(cc);  // centro ampliado
+        if(codes.length) txt=codes[0].rawValue;
       }
     }catch(e){}
-    // 2) fallback jsQR (iOS/otros): frame reducido + centro ampliado
-    if(!txt && typeof jsQR!=='undefined'){
-      const vw=v.videoWidth, vh=v.videoHeight;
-      const cap=1280, sc=Math.min(1,cap/Math.max(vw,vh));
-      const w=Math.round(vw*sc), h=Math.round(vh*sc);
-      const c=document.createElement('canvas'); c.width=w; c.height=h;
-      const ctx=c.getContext('2d',{willReadFrequently:true}); ctx.drawImage(v,0,0,w,h);
-      let d=ctx.getImageData(0,0,w,h);
-      let code=jsQR(d.data,w,h,{inversionAttempts:'attemptBoth'});
+    if(!txt && typeof jsQR!=='undefined'){             // fallback iOS: jsQR sobre el centro
+      const d=cx.getImageData(0,0,800,800);
+      const code=jsQR(d.data,800,800,{inversionAttempts:'attemptBoth'});
       if(code&&code.data) txt=code.data;
-      if(!txt){   // zona central ampliada (ayuda con QR chicos)
-        const side=Math.floor(Math.min(vw,vh)*0.55);
-        const sx=Math.floor((vw-side)/2), sy=Math.floor((vh-side)/2);
-        const cc=document.createElement('canvas'); cc.width=900; cc.height=900;
-        const cx=cc.getContext('2d',{willReadFrequently:true});
-        cx.drawImage(v,sx,sy,side,side,0,0,900,900);
-        d=cx.getImageData(0,0,900,900);
-        code=jsQR(d.data,900,900,{inversionAttempts:'attemptBoth'});
-        if(code&&code.data) txt=code.data;
-      }
     }
     if(txt){ stopCam(); $('raw').value=txt; process(txt); window.scrollTo(0,0); return; }
   }
