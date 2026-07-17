@@ -93,7 +93,7 @@
     <input type="file" id="file" accept="image/*" style="display:none">
     <video id="video" playsinline></video>
     <input type="range" id="zoom" style="display:none;width:100%;margin-top:8px" aria-label="Zoom">
-    <div id="zoomHint" class="hint" style="display:none">Deslizá para hacer zoom si el QR es chico</div>
+    <div id="zoomHint" class="hint" style="display:none">🔍 Zoom: subilo para QR chicos · dejalo al mínimo para QR grandes</div>
   </div>
 
   <div class="card">
@@ -10508,9 +10508,8 @@ function setupZoom(caps){
   const z=$('zoom'), hint=$('zoomHint');
   if(caps && caps.zoom && caps.zoom.max>caps.zoom.min){
     z.min=caps.zoom.min; z.max=caps.zoom.max; z.step=caps.zoom.step||0.1;
-    const z0=Math.min(caps.zoom.max, Math.max(caps.zoom.min, 2));   // arranca ~2x
-    z.value=z0;
-    try{ videoTrack.applyConstraints({advanced:[{zoom:z0}]}); }catch(e){}
+    z.value=caps.zoom.min;                               // arranca SIN zoom (así el QR grande entra entero)
+    try{ videoTrack.applyConstraints({advanced:[{zoom:caps.zoom.min}]}); }catch(e){}
     z.style.display='block'; hint.style.display='block';
     z.oninput=()=>{ try{ videoTrack.applyConstraints({advanced:[{zoom:parseFloat(z.value)}]}); }catch(e){} };
   }else{ z.style.display='none'; hint.style.display='none'; }
