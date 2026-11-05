@@ -10238,17 +10238,25 @@ async function imageToText(imgSrc){
     }
   }catch(e){/* sigue al fallback */}
 
-  // Intento 2: jsQR sobre versión reducida (rápido)
+  // Intento 2: llevar la imagen a ~1000 y ~1400 px. Las fotos grandes se achican (rápido)
+  // y los screenshots chicos se AGRANDAN: un QR denso a 300 px no se lee, agrandado sí.
   const big = Math.max(img.width, img.height);
-  const targets = [1400, 900];
+  const targets = [1000, 1400];
   for(const t of targets){
     await microPause();
-    const scale = Math.min(1, t/big);
+    const scale = t/big;
     const w = Math.max(1, Math.round(img.width*scale));
     const h = Math.max(1, Math.round(img.height*scale));
     const c = document.createElement('canvas'); c.width = w; c.height = h;
     const ctx = c.getContext('2d', {willReadFrequently:true});
+    ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
     ctx.drawImage(img,0,0,w,h);
+    try{
+      if('BarcodeDetector' in window){
+        const codes = await new BarcodeDetector({formats:['qr_code']}).detect(c);
+        if(codes.length) return codes[0].rawValue;
+      }
+    }catch(e){}
     const data = ctx.getImageData(0,0,w,h);
     if(typeof jsQR!=='undefined'){
       const code = jsQR(data.data, w, h, {inversionAttempts:'attemptBoth'});
